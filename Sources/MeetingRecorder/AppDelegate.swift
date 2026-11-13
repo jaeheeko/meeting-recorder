@@ -67,15 +67,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         b.title = ""
         switch state {
         case .idle:
-            // 녹음 중이 아닐 때만 처리 중 표시(모래시계)를 보인다.
-            let n = ProcessingQueue.shared.count
-            if n > 0 {
-                b.image = NSImage(systemSymbolName: "hourglass", accessibilityDescription: "처리 중")
-                b.toolTip = "MeetingRecorder: 처리 중 \(n)건"
-            } else {
-                b.image = NSImage(systemSymbolName: "mic", accessibilityDescription: "대기")
-                b.toolTip = "MeetingRecorder: 대기"
-            }
+            // 처리 중 여부는 아이콘에 보이지 않는다. 오른쪽 클릭 메뉴에서만 보인다.
+            b.image = NSImage(systemSymbolName: "mic", accessibilityDescription: "대기")
+            b.toolTip = "MeetingRecorder: 대기"
         case .starting:
             b.image = NSImage(systemSymbolName: "mic", accessibilityDescription: "시작 중")
             b.toolTip = "MeetingRecorder: 시작 중"
@@ -87,8 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             b.imagePosition = .imageLeading
             b.attributedTitle = NSAttributedString(string: " \(elapsedText)", attributes: [
                 .font: NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize - 1, weight: .regular)])
-            let n = ProcessingQueue.shared.count
-            b.toolTip = "녹음 중 \(elapsedText)" + (n > 0 ? " · 처리 중 \(n)건" : "")
+            b.toolTip = "녹음 중 \(elapsedText)"
         }
     }
 
