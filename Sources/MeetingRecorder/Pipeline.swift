@@ -21,12 +21,9 @@ enum Pipeline {
     }
     struct Result { var transcript: URL; var saved: URL?; var message: String; var keptAudio: String? = nil }
 
-    static func notify(_ title: String, _ body: String) {
-        func esc(_ s: String) -> String { s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") }
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        p.arguments = ["-e", "display notification \"\(esc(body))\" with title \"\(esc(title))\""]
-        try? p.run()
+    /// 앱 자신의 알림(앱 아이콘으로 표시)으로 보낸다. 저장 경로가 있으면 알림을 눌러 그 파일을 연다.
+    static func notify(_ title: String, _ body: String, open: URL? = nil) {
+        Notifier.post(title, body, open: open)
     }
 
     static func header(_ d: Date) -> String {

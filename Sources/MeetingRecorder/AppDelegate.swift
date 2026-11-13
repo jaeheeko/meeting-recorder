@@ -12,6 +12,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ n: Notification) {
         Paths.ensureDirs()
+        Notifier.setup()
+        if CommandLine.arguments.contains("--test-notify") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { Pipeline.notify("MeetingRecorder", "알림 시험입니다.") }
+        }
         recent = (try? JSONDecoder().decode([String].self, from: Data(contentsOf: Paths.recentFile))) ?? []
         item.button?.target = self
         item.button?.action = #selector(clicked)
@@ -29,7 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, s % 3600 / 60, s % 60) : String(format: "%02d:%02d", s / 60, s % 60)
     }
 
-    /// 노치에 가리지 않게 항상 아이콘만 쓴다(텍스트 title 없음). 경과 시간은 툴팁과 메뉴에 둔다.
+    /// 녹음 중에는 빨간 점 옆에 경과 시간을 짧게(고정폭 숫자) 붙인다. 그 밖의 상태는 아이콘만 쓴다.
     private func refresh() {
         guard let b = item.button else { return }
         b.attributedTitle = NSAttributedString(string: "")
@@ -46,6 +50,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .withSymbolConfiguration(.init(paletteColors: [.systemRed]))
             img?.isTemplate = false
             b.image = img
+            b.imagePosition = .imageLeading
+            b.attributedTitle = NSAttributedString(string: " \(elapsedText)", attributes: [
+                .font: NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize - 1, weight: .regular)])
             b.toolTip = "녹음 중 \(elapsedText)"
         case .processing:
             b.image = NSImage(systemSymbolName: "hourglass", accessibilityDescription: "처리 중")
@@ -125,7 +132,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     let p = (res.saved ?? res.transcript).path
                     self.addRecent(p); self.state = .idle
                     let extra = res.keptAudio.map { "\n" + $0 } ?? ""
-                    Pipeline.notify(res.saved != nil ? "회의록 저장됨" : "정리 실패", (res.saved != nil ? p : res.message) + extra)
+                    Pipeline.notify(res.saved != nil ? "회의록 저장됨" : "정리 실패", (res.saved != nil ? p : res.message) + extra, open: res.saved ?? res.transcript)
                 }
             } catch {
                 await MainActor.run { self.state = .idle; Pipeline.notify("처리 실패", "\(error)") }
