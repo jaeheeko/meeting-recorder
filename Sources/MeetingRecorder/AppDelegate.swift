@@ -13,6 +13,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ n: Notification) {
         Paths.ensureDirs()
         Notifier.setup()
+        if CommandLine.arguments.contains("--preview-editor") {   // 확인용: 포커스 없이 정리 프롬프트 편집 창을 뒤에 띄운다
+            let c = Config.load()
+            let u = c.organizePromptPath.isEmpty ? Paths.appSupport.appendingPathComponent("prompts/organize.md") : Config.expand(c.organizePromptPath)
+            EditorWindows.shared.open(title: "정리 프롬프트", url: u, defaultText: nil, background: true)
+        }
         if CommandLine.arguments.contains("--test-notify") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { Pipeline.notify("MeetingRecorder", "알림 시험입니다.") }
         }

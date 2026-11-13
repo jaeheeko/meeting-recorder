@@ -26,25 +26,25 @@ struct SettingsView: View {
                     Button("교정 프롬프트 편집") { SettingsView.editPrompt(.correct) }
                     Button("용어 사전 편집") { SettingsView.editTerms() }
                 }
-                Button("config.json 열기") { cfg.save(); NSWorkspace.shared.open(Config.file) }
+                Button("config.json 편집") { SettingsView.editConfig() }
             }
-            Text("저장 경로 패턴, 파일 이름, 모델 같은 고급 항목은 config.json 에서 바꾼다.")
+            Text("저장 경로 패턴, 파일 이름, 모델 같은 고급 항목은 config.json 에서 바꾼다. config.json 을 고친 뒤에는 이 창을 닫았다 다시 열면 반영된다.")
                 .font(.footnote).foregroundStyle(.secondary)
         }
         .formStyle(.grouped)
         .padding(8)
         .frame(width: 560, height: 560)
-        .onChange(of: cfg.outputRoot) { _, _ in cfg.save() }
-        .onChange(of: cfg.agentWorkingDir) { _, _ in cfg.save() }
+        .onChange(of: cfg.outputRoot) { _, v in Config.update { $0.outputRoot = v } }
+        .onChange(of: cfg.agentWorkingDir) { _, v in Config.update { $0.agentWorkingDir = v } }
         .onDisappear { saveName() }
-        .onChange(of: cfg.correctionEnabled) { _, _ in cfg.save() }
-        .onChange(of: cfg.calendarEnabled) { _, _ in cfg.save() }
+        .onChange(of: cfg.correctionEnabled) { _, v in Config.update { $0.correctionEnabled = v } }
+        .onChange(of: cfg.calendarEnabled) { _, v in Config.update { $0.calendarEnabled = v } }
     }
 
     private func saveName() {
         let n = nameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         if n.isEmpty { nameDraft = cfg.userName; return }
-        if n != cfg.userName { cfg.userName = n; cfg.save() }
+        if n != cfg.userName { cfg.userName = n; Config.update { $0.userName = n } }
     }
 
     private func pathRow(_ title: String, binding: Binding<String>, placeholder: String = "") -> some View {
@@ -65,7 +65,7 @@ struct SettingsView: View {
 
     enum Kind { case organize, correct }
 
-    /// 설정 경로가 비어 있으면 번들 기본본을 Application Support/prompts 로 복사해 설정에 연결한 뒤 기본 편집기로 연다.
+    /// 설정 경로가 비어 있으면 번들 기본본을 Application Support/prompts 로 복사해 설정에 연결한 뒤 앱 안 편집 창으로 연다.
     static func editPrompt(_ kind: Kind) {
         var c = Config.load()
         let (custom, bundled, name) = kind == .organize
@@ -79,7 +79,17 @@ struct SettingsView: View {
         target = target.standardizedFileURL
         if kind == .organize { c.organizePromptPath = target.path } else { c.correctPromptPath = target.path }
         c.save()
-        NSWorkspace.shared.open(target)
+        let def = Paths.resource(bundled).flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+        EditorWindows.shared.open(title: kind == .organize ? "정리 프롬프트" : "교정 프롬프트", url: target, defaultText: def)
+    }
+
+    static func editConfig() {
+        EditorWindows.shared.open(title: "config.json", url: Config.file) { text in
+            guard let d = text.data(using: .utf8), (try? JSONSerialization.jsonObject(with: d)) is [String: Any] else {
+                return "JSON 형식이 올바르지 않아 저장하지 않았습니다."
+            }
+            return nil
+        }
     }
 
     static func editTerms() {
@@ -90,7 +100,8 @@ struct SettingsView: View {
             let seed = Paths.resource("terms.example.txt").flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? "# 한 줄에 용어 하나\n"
             try? seed.write(to: t, atomically: true, encoding: .utf8)
         }
-        NSWorkspace.shared.open(t)
+        let def = Paths.resource("terms.example.txt").flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+        EditorWindows.shared.open(title: "용어 사전", url: t, defaultText: def)
     }
 
     static var window: NSWindow?

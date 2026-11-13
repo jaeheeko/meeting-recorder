@@ -74,6 +74,9 @@ struct Config: Codable {
         return c
     }
 
+    /// 파일의 최신 값을 읽어 한 항목만 바꿔 저장한다(앱 안에서 config.json 을 고친 내용을 덮어쓰지 않게).
+    static func update(_ f: (inout Config) -> Void) { var c = Config.load(); f(&c); c.save() }
+
     func save() {
         try? FileManager.default.createDirectory(at: Config.file.deletingLastPathComponent(), withIntermediateDirectories: true)
         let e = JSONEncoder(); e.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
