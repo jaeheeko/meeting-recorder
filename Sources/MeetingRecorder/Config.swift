@@ -83,9 +83,13 @@ struct Config: Codable {
     // MARK: 해석된 값
 
     static func expand(_ p: String) -> URL { URL(fileURLWithPath: (p as NSString).expandingTildeInPath) }
-    var outputRootURL: URL { Config.expand(outputRoot.isEmpty ? "~/Documents/Meeting Notes" : outputRoot) }
+    var outputRootURL: URL {
+        let r = outputRoot.trimmingCharacters(in: .whitespacesAndNewlines)
+        return Config.expand(r.isEmpty ? "~/Documents/Meeting Notes" : r)
+    }
     var workingDirURL: URL {
-        let u = agentWorkingDir.isEmpty ? outputRootURL : Config.expand(agentWorkingDir)
+        let w = agentWorkingDir.trimmingCharacters(in: .whitespacesAndNewlines)
+        let u = w.isEmpty ? outputRootURL : Config.expand(w)
         // 아직 없는 폴더(첫 실행 전 기본 경로)는 claude 실행 위치로 못 쓰니 앱 폴더로 대신한다.
         return FileManager.default.fileExists(atPath: u.path) ? u : Paths.appSupport
     }

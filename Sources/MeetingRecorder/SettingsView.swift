@@ -4,6 +4,7 @@ import AppKit
 /// 최소 설정 창. 나머지 고급 항목은 config.json 에서 직접 바꾼다.
 struct SettingsView: View {
     @State private var cfg = Config.load()
+    @State private var nameDraft = Config.load().userName
 
     var body: some View {
         Form {
@@ -12,7 +13,8 @@ struct SettingsView: View {
                 pathRow("작업 디렉터리", binding: $cfg.agentWorkingDir, placeholder: "(비우면 저장 폴더)")
             }
             Section("사용자") {
-                TextField("내 이름", text: $cfg.userName)
+                // 이름은 Enter를 누르거나 창을 닫을 때만 저장한다(글자마다 저장하지 않는다).
+                TextField("내 이름", text: $nameDraft).onSubmit { saveName() }
             }
             Section("처리") {
                 Toggle("전사 의미 교정", isOn: $cfg.correctionEnabled)
@@ -31,17 +33,28 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .padding(8)
-        .frame(width: 480)
+        .frame(width: 560, height: 560)
         .onChange(of: cfg.outputRoot) { _, _ in cfg.save() }
         .onChange(of: cfg.agentWorkingDir) { _, _ in cfg.save() }
-        .onChange(of: cfg.userName) { _, _ in cfg.save() }
+        .onDisappear { saveName() }
         .onChange(of: cfg.correctionEnabled) { _, _ in cfg.save() }
         .onChange(of: cfg.calendarEnabled) { _, _ in cfg.save() }
     }
 
+    private func saveName() {
+        let n = nameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        if n.isEmpty { nameDraft = cfg.userName; return }
+        if n != cfg.userName { cfg.userName = n; cfg.save() }
+    }
+
     private func pathRow(_ title: String, binding: Binding<String>, placeholder: String = "") -> some View {
         HStack {
-            TextField(title, text: binding, prompt: Text(placeholder))
+            // 경로는 직접 타이핑하지 않고 "선택…"으로만 바꾼다(실수로 공백이 들어가 저장 위치가 깨지는 것을 막는다).
+            Text(title)
+            Spacer()
+            Text(binding.wrappedValue.isEmpty ? placeholder : (binding.wrappedValue as NSString).abbreviatingWithTildeInPath)
+                .foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                .help(binding.wrappedValue)
             Button("선택…") {
                 let p = NSOpenPanel()
                 p.canChooseDirectories = true; p.canChooseFiles = false; p.canCreateDirectories = true
@@ -83,7 +96,10 @@ struct SettingsView: View {
     static var window: NSWindow?
     static func show() {
         if window == nil {
-            let w = NSWindow(contentViewController: NSHostingController(rootView: SettingsView()))
+            let host = NSHostingController(rootView: SettingsView())
+            host.sizingOptions = [.preferredContentSize]
+            let w = NSWindow(contentViewController: host)
+            w.setContentSize(NSSize(width: 560, height: 560))
             w.title = "MeetingRecorder 설정"
             w.styleMask = [.titled, .closable]
             w.isReleasedWhenClosed = false
@@ -94,5 +110,7 @@ struct SettingsView: View {
         NSApp.activate(ignoringOtherApps: true)
         window?.center()
         window?.makeKeyAndOrderFront(nil)
+        // 창이 열리자마자 입력 칸에 포커스가 가지 않게 한다(다른 앱에서 치던 글자가 들어가는 사고 방지).
+        DispatchQueue.main.async { window?.makeFirstResponder(nil) }
     }
 }
