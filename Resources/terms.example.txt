@@ -1,0 +1,6 @@
+# 한 줄에 용어 하나. 회사·제품 이름, 사람 이름, 약어처럼 자주 틀리게 받아쓰는 말을 적는다.
+# 설정의 termsPath(기본 ~/Library/Application Support/MeetingRecorder/terms.txt)에 두면
+# 전사 때 contextualStrings 로 들어가고, 교정 프롬프트에도 전달된다. '#'로 시작하는 줄은 무시한다.
+OKR
+API
+GitHub

@@ -1,0 +1,12 @@
+.build/
+build/
+.swiftpm/
+.DS_Store
+*.wav
+*.caf
+*.m4a
+*.aiff
+config.json
+terms.txt
+sessions/
+transcripts/
