@@ -24,6 +24,44 @@ func runCLI() async -> Int32 {
             } else { print(raw) }
             return 0
         }
+        if let i = args.firstIndex(of: "--enqueue-test") { // 대기열 시험: wav 마다 세션 폴더를 만들어 연달아 넣는다(노트는 저장하지 않음)
+            guard ProcessInfo.processInfo.environment["MR_APP_SUPPORT"] != nil else { log("MR_APP_SUPPORT 를 임시 폴더로 지정해야 한다"); return 2 }
+            let wavs = Array(args[(i + 1)...]).filter { !$0.hasPrefix("--") }
+            Paths.ensureDirs(); Pipeline.dryRun = true
+            let t0 = Date()
+            func ts() -> String { String(format: "%6.1fs", Date().timeIntervalSince(t0)) }
+            var finished = 0
+            let q = ProcessingQueue.shared
+            var last = ""
+            q.onChange = {
+                let desc = q.snapshot().map { "\($0.id)[\($0.running ? "실행" : "대기"):\($0.stage)]" }.joined(separator: " ")
+                if desc != last { last = desc; print("\(ts()) 대기열(\(q.count)건): \(desc.isEmpty ? "비어 있음" : desc)") }
+            }
+            q.onFinish = { job, r in
+                finished += 1
+                switch r {
+                case .success(let res): print("\(ts()) 완료 \(job.id): \(res.message)")
+                case .failure(let e): print("\(ts()) 실패 \(job.id): \(e)")
+                }
+            }
+            func session(_ n: Int, _ wav: String) -> URL {
+                let dir = Paths.sessions.appendingPathComponent(String(format: "20261113-10000%d", n))
+                try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                try? FileManager.default.copyItem(atPath: wav, toPath: dir.appendingPathComponent("me.wav").path)
+                let info = SessionInfo(startedAt: Date().addingTimeInterval(Double(n)), meFile: "me.wav", otherFile: nil, meOffset: 0, otherOffset: 0, warnings: [], mePeak: 1, otherPeak: 0, otherSilent: true, endedAt: Date(), calendar: [], state: nil)
+                try? JSONEncoder().encode(info).write(to: dir.appendingPathComponent("session.json"))
+                return dir
+            }
+            for (n, w) in wavs.enumerated() {
+                // 두 번째부터는 앞 세션을 처리하는 도중에 들어온다(연달아 녹음을 마친 상황)
+                if n > 0 { try? await Task.sleep(nanoseconds: 4_000_000_000) }
+                print("\(ts()) 녹음 종료 → 세션 \(n + 1) 대기열에 넣음")
+                q.enqueue(dir: session(n + 1, w))
+            }
+            while finished < wavs.count { try? await Task.sleep(nanoseconds: 500_000_000) }
+            print("남은 세션 폴더: \((try? FileManager.default.contentsOfDirectory(atPath: Paths.sessions.path))?.count ?? -1)개")
+            return 0
+        }
         if args.contains("--selftest") {
             func si(me: String?, other: String?, mePeak: Float?, otherPeak: Float?, w: [String] = []) -> SessionInfo {
                 SessionInfo(startedAt: Date(), meFile: me, otherFile: other, meOffset: 0, otherOffset: 0, warnings: w, mePeak: mePeak, otherPeak: otherPeak, otherSilent: other == nil || (otherPeak ?? 1) < 0.003)
@@ -36,6 +74,10 @@ func runCLI() async -> Int32 {
                 ("오류 경고", Pipeline.retentionReasons(si(me: "me", other: "o", mePeak: 0.5, otherPeak: 0.4, w: ["x"]))),
             ]
             for (n, r) in cases { print("\(n): \(r.isEmpty ? "삭제" : "보존 " + r.joined(separator: ","))") }
+            if ProcessInfo.processInfo.environment["MR_APP_SUPPORT"] != nil {
+                let r = ProcessingQueue.scanLeftovers()
+                print("재시작 스캔: 이어서 처리 \(r.resume.map { $0.lastPathComponent }), 보존/기타 \(r.preserved)개")
+            }
             // 저장 경로 정책: 패턴, 존재 확인, 확신 여부, 이탈 거부
             let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("mr-selftest-\(getpid())")
             try? FileManager.default.createDirectory(at: tmp.appendingPathComponent("Projects/alpha"), withIntermediateDirectories: true)
@@ -96,7 +138,7 @@ func runCLI() async -> Int32 {
     }
 }
 
-let cliFlags = ["--transcribe", "--organize", "--process-session", "--selftest", "--help", "-h"]
+let cliFlags = ["--transcribe", "--organize", "--process-session", "--enqueue-test", "--selftest", "--help", "-h"]
 if args.contains(where: { cliFlags.contains($0) }) {
     Task { exit(await runCLI()) }
     RunLoop.main.run()

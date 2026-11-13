@@ -52,8 +52,17 @@ enum Organizer {
             .replacingOccurrences(of: "{{TRANSCRIPT}}", with: raw)
     }
 
+    private static var children: [Process] = []
+    private static let childLock = NSLock()
+    /// 앱 종료 때 돌고 있는 claude 를 정리한다.
+    static func terminateChildren() {
+        childLock.lock(); let c = children; childLock.unlock()
+        for p in c where p.isRunning { p.terminate() }
+    }
+
     static func runClaude(prompt: String, cwd: URL? = nil, tools: [String]? = nil, timeout: TimeInterval = 900, cfg: Config = Config.load()) throws -> String {
         let p = Process()
+        p.qualityOfService = .utility   // 녹음이 끊기지 않게 처리 쪽은 낮은 우선순위로
         p.executableURL = URL(fileURLWithPath: cfg.claudeURL)
         var args = ["-p", "--no-session-persistence", "--permission-mode", "dontAsk"]
         if let tools {  // 도구 없는 교정용: 내장 도구를 모두 끈다
@@ -77,6 +86,8 @@ enum Organizer {
         g.enter(); DispatchQueue.global().async { errData = errPipe.fileHandleForReading.readDataToEndOfFile(); g.leave() }
         signal(SIGPIPE, SIG_IGN)
         try p.run()
+        childLock.lock(); children.append(p); childLock.unlock()
+        defer { childLock.lock(); children.removeAll { $0 === p }; childLock.unlock() }
         var timedOut = false
         let killer = DispatchWorkItem { if p.isRunning { timedOut = true; p.terminate() } }
         DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: killer)
@@ -119,7 +130,7 @@ enum Organizer {
         return policy.resolve(path: raw, confident: confidence.hasPrefix("확실"), defaultFileName: "\(started.prefix(10)) 회의.md")
     }
 
-    static func plan(transcript: URL, calendar override: [CalEvent]? = nil, correct: Bool = true) throws -> OrganizePlan {
+    static func plan(transcript: URL, calendar override: [CalEvent]? = nil, correct: Bool = true, progress: ((String) -> Void)? = nil) throws -> OrganizePlan {
         let (started, tracks, headerCal, raw) = try readTranscript(transcript)
         guard !raw.isEmpty else { throw E(description: "전사문이 비어 있다") }
         let cfg = Config.load()
@@ -127,9 +138,11 @@ enum Organizer {
         var corrected = raw
         var report: Corrector.Report? = nil
         if correct && cfg.correctionEnabled {
+            progress?("교정")
             let r = Corrector.correct(raw: raw, tracks: tracks, calendar: cal)
             corrected = r.text; report = r.report
         }
+        progress?("정리")
         let out = try runClaude(prompt: try prompt(started: started, tracks: tracks, calendar: cal, raw: corrected, cfg: cfg), cfg: cfg)
         let r = try parse(out)
         let (path, note) = sanitize(path: r.path, confidence: r.conf, started: started, cfg: cfg)

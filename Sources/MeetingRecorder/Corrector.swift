@@ -71,7 +71,7 @@ enum Corrector {
         let lock = NSLock(), sem = DispatchSemaphore(value: parallel), g = DispatchGroup()
         for (i, c) in chunks.enumerated() {
             g.enter(); sem.wait()
-            DispatchQueue.global().async {
+            DispatchQueue.global(qos: .utility).async {
                 defer { sem.signal(); g.leave() }
                 let prompt = template
                     .replacingOccurrences(of: "{{USER_NAME}}", with: cfg.userDisplayName)

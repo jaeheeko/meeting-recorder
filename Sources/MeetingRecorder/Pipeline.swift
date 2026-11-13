@@ -39,21 +39,33 @@ enum Pipeline {
     }
 
     /// 녹음 세션 폴더를 처리한다: 전사 → transcripts 저장 → (성공 시) 오디오 삭제 → 정리 → 노트 저장.
-    static func process(sessionDir: URL) async throws -> Result {
+    /// 시험용: true 면 교정을 건너뛰고 노트를 저장하지 않는다.
+    static var dryRun = false
+
+    /// session.json 의 state 를 갱신한다(자동 재처리 대상 구분용).
+    static func markSession(_ dir: URL, state: String) {
+        let f = dir.appendingPathComponent("session.json")
+        guard let d = try? Data(contentsOf: f), var info = try? JSONDecoder().decode(SessionInfo.self, from: d) else { return }
+        info.state = state
+        if let nd = try? JSONEncoder().encode(info) { try? nd.write(to: f) }
+    }
+
+    static func process(sessionDir: URL, progress: ((String) -> Void)? = nil) async throws -> Result {
         Paths.ensureDirs()
+        progress?("전사")
         let data = try Data(contentsOf: sessionDir.appendingPathComponent("session.json"))
         let dec = JSONDecoder(); dec.dateDecodingStrategy = .deferredToDate
         let info = try dec.decode(SessionInfo.self, from: data)
-        guard info.meFile != nil || info.otherFile != nil else { throw Organizer.E(description: "녹음된 오디오가 없다") }
+        guard info.meFile != nil || info.otherFile != nil else { markSession(sessionDir, state: "failed"); throw Organizer.E(description: "녹음된 오디오가 없다") }
         let raw: String
         do {
             raw = try await transcribeTracks(
                 me: info.meFile.map { sessionDir.appendingPathComponent($0) },
                 other: info.otherFile.map { sessionDir.appendingPathComponent($0) },
                 meOffset: info.meOffset, otherOffset: info.otherOffset)
-        } catch { throw Organizer.E(description: "전사 실패(오디오는 \(sessionDir.path) 에 남김): \(error)") }
+        } catch { markSession(sessionDir, state: "failed"); throw Organizer.E(description: "전사 실패(오디오는 \(sessionDir.path) 에 남김): \(error)") }
         // 글자·숫자가 5개 미만이면 사실상 빈 전사다(예: "."만 나온 경우). 노트로 저장하지 않고 알림만 띄운다.
-        guard meaningfulCount(raw) >= 5 else { throw Organizer.E(description: "전사 결과가 사실상 비었다(음성 없음?). 노트로는 저장하지 않음. 오디오는 \(sessionDir.path) 에 남김") }
+        guard meaningfulCount(raw) >= 5 else { markSession(sessionDir, state: "failed"); throw Organizer.E(description: "전사 결과가 사실상 비었다(음성 없음?). 노트로는 저장하지 않음. 오디오는 \(sessionDir.path) 에 남김") }
 
         let fn = DateFormatter(); fn.dateFormat = "yyyy-MM-dd_HHmmss"
         let base = fn.string(from: info.startedAt)
@@ -72,17 +84,20 @@ enum Pipeline {
         }
         // 전사본을 다시 읽어 확인한 뒤에만 오디오를 지운다. 이상 징후가 있으면 남기고 알린다.
         guard let back = try? String(contentsOf: tURL, encoding: .utf8), back == content else {
+            markSession(sessionDir, state: "failed")
             throw Organizer.E(description: "전사본 저장 확인 실패. 오디오는 \(sessionDir.path) 에 남김")
         }
         // 보존 기준: 마이크 트랙이 없거나 무음, 실제 오류 경고. 상대 트랙만 무음이면 대면 회의로 보고 정상 처리한다.
         let reasons = retentionReasons(info)
         var kept: String? = nil
         if reasons.isEmpty && !Config.load().keepAudio { try? FileManager.default.removeItem(at: sessionDir) }
-        else if reasons.isEmpty { kept = "오디오를 보관함(설정 keepAudio): \(sessionDir.path)" }
-        else { kept = "오디오를 남김(\(reasons.joined(separator: ", "))): \(sessionDir.path)" }
+        else if reasons.isEmpty { kept = "오디오를 보관함(설정 keepAudio): \(sessionDir.path)"; markSession(sessionDir, state: "kept") }
+        else { kept = "오디오를 남김(\(reasons.joined(separator: ", "))): \(sessionDir.path)"; markSession(sessionDir, state: "kept") }
 
         do {
-            let plan = try Organizer.plan(transcript: tURL)
+            let plan = try Organizer.plan(transcript: tURL, correct: !dryRun, progress: progress)
+            if dryRun { return Result(transcript: tURL, saved: nil, message: "dry-run 경로: \(plan.relPath)", keptAudio: kept) }
+            progress?("저장")
             let saved = try Organizer.write(plan)
             return Result(transcript: tURL, saved: saved, message: saved.path, keptAudio: kept)
         } catch {

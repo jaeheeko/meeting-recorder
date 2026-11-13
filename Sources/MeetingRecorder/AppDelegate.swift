@@ -2,7 +2,7 @@ import AppKit
 import AVFoundation
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    enum State { case idle, starting, recording, processing }
+    enum State { case idle, starting, recording }
     private var state = State.idle { didSet { refresh() } }
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private var recorder: Recorder?
@@ -27,11 +27,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.refresh() }
         refresh()
-        // 전에 전사 실패로 남은 세션이 있으면 알린다.
-        if let left = try? FileManager.default.contentsOfDirectory(atPath: Paths.sessions.path), !left.isEmpty {
-            Pipeline.notify("MeetingRecorder", "처리되지 않은 녹음 \(left.count)개가 남아 있음: \(Paths.sessions.path)")
+        let q = ProcessingQueue.shared
+        q.onChange = { [weak self] in self?.refresh() }
+        q.onFinish = { [weak self] job, result in self?.finished(job, result) }
+        // 처리하지 못한 채 남은 세션은 다시 대기열에 넣어 이어서 처리한다. 실패·보존 세션은 알리기만 한다.
+        let left = ProcessingQueue.scanLeftovers()
+        if !left.resume.isEmpty {
+            Pipeline.notify("MeetingRecorder", "처리하지 못한 회의 \(left.resume.count)건을 이어서 처리합니다")
+            left.resume.forEach { q.enqueue(dir: $0) }
+        }
+        if left.preserved > 0 {
+            Pipeline.notify("MeetingRecorder", "보존된 녹음 \(left.preserved)개가 남아 있음: \(Paths.sessions.path)")
         }
     }
+
+    private func finished(_ job: ProcessingQueue.Job, _ result: Swift.Result<Pipeline.Result, Error>) {
+        switch result {
+        case .success(let res):
+            let p = (res.saved ?? res.transcript).path
+            addRecent(p)
+            let extra = res.keptAudio.map { "\n" + $0 } ?? ""
+            Pipeline.notify(res.saved != nil ? "회의록 저장됨" : "정리 실패", (res.saved != nil ? p : res.message) + extra, open: res.saved ?? res.transcript)
+        case .failure(let error):
+            Pipeline.notify("처리 실패", "\(error)")
+        }
+    }
+
+    private func timeText(_ d: Date) -> String { let f = DateFormatter(); f.dateFormat = "HH:mm"; return f.string(from: d) }
 
     private var elapsedText: String {
         let s = Int(Date().timeIntervalSince(recordingStart))
@@ -45,8 +67,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         b.title = ""
         switch state {
         case .idle:
-            b.image = NSImage(systemSymbolName: "mic", accessibilityDescription: "대기")
-            b.toolTip = "MeetingRecorder: 대기"
+            // 녹음 중이 아닐 때만 처리 중 표시(모래시계)를 보인다.
+            let n = ProcessingQueue.shared.count
+            if n > 0 {
+                b.image = NSImage(systemSymbolName: "hourglass", accessibilityDescription: "처리 중")
+                b.toolTip = "MeetingRecorder: 처리 중 \(n)건"
+            } else {
+                b.image = NSImage(systemSymbolName: "mic", accessibilityDescription: "대기")
+                b.toolTip = "MeetingRecorder: 대기"
+            }
         case .starting:
             b.image = NSImage(systemSymbolName: "mic", accessibilityDescription: "시작 중")
             b.toolTip = "MeetingRecorder: 시작 중"
@@ -58,18 +87,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             b.imagePosition = .imageLeading
             b.attributedTitle = NSAttributedString(string: " \(elapsedText)", attributes: [
                 .font: NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize - 1, weight: .regular)])
-            b.toolTip = "녹음 중 \(elapsedText)"
-        case .processing:
-            b.image = NSImage(systemSymbolName: "hourglass", accessibilityDescription: "처리 중")
-            b.toolTip = "MeetingRecorder: 처리 중"
+            let n = ProcessingQueue.shared.count
+            b.toolTip = "녹음 중 \(elapsedText)" + (n > 0 ? " · 처리 중 \(n)건" : "")
         }
     }
 
     @objc private func clicked() {
         let ev = NSApp.currentEvent
         if ev?.type == .rightMouseUp || ev?.modifierFlags.contains(.control) == true { showMenu(); return }
-        // 왼쪽 클릭 = 토글. (처리 중이면 메뉴만 보인다)
-        if state == .processing || state == .starting { showMenu(); return }
+        // 왼쪽 클릭 = 토글. (시작 중이면 메뉴만 보인다)
+        if state == .starting { showMenu(); return }
         toggle()
     }
 
@@ -77,10 +104,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let m = NSMenu()
         if state == .recording {
             let e = NSMenuItem(title: "녹음 중 \(elapsedText)", action: nil, keyEquivalent: ""); e.isEnabled = false; m.addItem(e)
-        } else if state == .processing {
-            let e = NSMenuItem(title: "처리 중", action: nil, keyEquivalent: ""); e.isEnabled = false; m.addItem(e)
         }
-        let t = NSMenuItem(title: state == .recording ? "녹음 종료" : "녹음 시작", action: (state == .processing || state == .starting) ? nil : #selector(toggle), keyEquivalent: "")
+        let jobs = ProcessingQueue.shared.snapshot()
+        if !jobs.isEmpty {
+            let h = NSMenuItem(title: "처리 중 \(jobs.count)건", action: nil, keyEquivalent: ""); h.isEnabled = false; m.addItem(h)
+            for j in jobs {
+                let e = NSMenuItem(title: "  \(timeText(j.startedAt)) 시작: \(j.stage)", action: nil, keyEquivalent: ""); e.isEnabled = false; m.addItem(e)
+            }
+        }
+        let t = NSMenuItem(title: state == .recording ? "녹음 종료" : "녹음 시작", action: state == .starting ? nil : #selector(toggle), keyEquivalent: "")
         t.target = self; m.addItem(t)
         m.addItem(.separator())
         if recent.isEmpty { let e = NSMenuItem(title: "최근 결과 없음", action: nil, keyEquivalent: ""); e.isEnabled = false; m.addItem(e) }
@@ -101,7 +133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch state {
         case .idle: startRecording()
         case .recording: stopRecording()
-        case .starting, .processing: break
+        case .starting: break
         }
     }
 
@@ -125,24 +157,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// 녹음을 멈추면 세션을 처리 대기열에 넣고 바로 대기로 돌아간다(다음 녹음을 시작할 수 있다).
     private func stopRecording() {
         guard let r = recorder else { return }
         let dir = r.dir
         _ = r.stop(); recorder = nil
-        state = .processing
-        Task {
-            do {
-                let res = try await Pipeline.process(sessionDir: dir)
-                await MainActor.run {
-                    let p = (res.saved ?? res.transcript).path
-                    self.addRecent(p); self.state = .idle
-                    let extra = res.keptAudio.map { "\n" + $0 } ?? ""
-                    Pipeline.notify(res.saved != nil ? "회의록 저장됨" : "정리 실패", (res.saved != nil ? p : res.message) + extra, open: res.saved ?? res.transcript)
-                }
-            } catch {
-                await MainActor.run { self.state = .idle; Pipeline.notify("처리 실패", "\(error)") }
-            }
-        }
+        state = .idle
+        ProcessingQueue.shared.enqueue(dir: dir)
     }
 
     private func addRecent(_ p: String) {
@@ -153,7 +174,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func openSettings() { SettingsView.show() }
     @objc private func openTranscripts() { NSWorkspace.shared.open(Paths.transcripts) }
     @objc private func quit() {
-        if state == .recording { _ = recorder?.stop() } // 녹음 파일은 sessions 에 남는다
+        let n = ProcessingQueue.shared.count
+        if n > 0 || state == .recording {
+            let a = NSAlert()
+            a.messageText = n > 0 ? "처리 중인 회의가 \(n)건 있습니다" : "녹음 중입니다"
+            a.informativeText = (n > 0 ? "종료하면 다음 실행 때 이어서 처리합니다." : "") + (state == .recording ? (n > 0 ? "\n" : "") + "녹음 중인 회의는 여기서 멈추고 다음 실행 때 처리합니다." : "")
+            a.addButton(withTitle: "종료"); a.addButton(withTitle: "취소")
+            NSApp.activate(ignoringOtherApps: true)
+            if a.runModal() != .alertFirstButtonReturn { return }
+        }
+        if state == .recording, let r = recorder { _ = r.stop() } // session.json 이 남아 다음 실행 때 이어서 처리된다
+        Organizer.terminateChildren()
         NSApp.terminate(nil)
     }
 }

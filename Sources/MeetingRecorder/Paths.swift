@@ -2,7 +2,9 @@ import Foundation
 
 enum Paths {
     static let home = FileManager.default.homeDirectoryForCurrentUser
-    static let appSupport = home.appendingPathComponent("Library/Application Support/MeetingRecorder")
+    /// 시험용: MR_APP_SUPPORT 로 앱 데이터 폴더를 바꿀 수 있다.
+    static let appSupport: URL = ProcessInfo.processInfo.environment["MR_APP_SUPPORT"].map { URL(fileURLWithPath: $0) }
+        ?? home.appendingPathComponent("Library/Application Support/MeetingRecorder")
     static let transcripts = appSupport.appendingPathComponent("transcripts")
     static let sessions = appSupport.appendingPathComponent("sessions")
     static let recentFile = appSupport.appendingPathComponent("recent.json")

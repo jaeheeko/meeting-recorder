@@ -15,6 +15,8 @@ struct SessionInfo: Codable {
     var otherSilent: Bool?
     var endedAt: Date?
     var calendar: [CalEvent]?
+    /// nil = 처리 대기(앱 재시작 때 자동으로 이어서 처리). "failed" = 처리 실패로 오디오 보존, "kept" = 처리는 끝났고 오디오만 보존. 둘 다 자동 재처리하지 않는다.
+    var state: String?
 }
 
 /// 마이크(AVAudioEngine)와 시스템 오디오(Core Audio process tap)를 별도 트랙으로 기록한다.
