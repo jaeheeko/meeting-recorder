@@ -8,7 +8,23 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     static func setup() {
         let c = UNUserNotificationCenter.current()
         c.delegate = shared
-        c.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        c.requestAuthorization(options: [.alert, .sound]) { granted, err in
+            c.getNotificationSettings { st in
+                let line = "authorization=\(st.authorizationStatus.rawValue) granted=\(granted) err=\(String(describing: err))\n"
+                try? line.write(to: Paths.appSupport.appendingPathComponent("notify-status.txt"), atomically: true, encoding: .utf8)
+            }
+        }
+    }
+
+    /// 알림 권한 상태(설정 창·메뉴 표시용). 0 미결정, 1 거부, 2 허용, 3 임시 허용
+    static func status(_ done: @escaping (UNAuthorizationStatus) -> Void) {
+        UNUserNotificationCenter.current().getNotificationSettings { done($0.authorizationStatus) }
+    }
+
+    /// 시스템 설정의 이 앱 알림 화면을 연다.
+    static func openSettings() {
+        let id = Bundle.main.bundleIdentifier ?? ""
+        if let u = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(id)") { NSWorkspace.shared.open(u) }
     }
 
     static func post(_ title: String, _ body: String, open: URL? = nil) {

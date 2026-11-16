@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ n: Notification) {
         Paths.ensureDirs()
         Notifier.setup()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { self.refreshNotificationStatus() }
         if CommandLine.arguments.contains("--preview-settings") { SettingsView.show(background: true) }   // 확인용
         if CommandLine.arguments.contains("--preview-editor") {   // 확인용: 포커스 없이 정리 프롬프트 편집 창을 뒤에 띄운다
             let c = Config.load()
@@ -95,6 +96,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showMenu() {
+        refreshNotificationStatus()
         let m = NSMenu()
         if state == .recording {
             let e = NSMenuItem(title: "녹음 중 \(elapsedText)", action: nil, keyEquivalent: ""); e.isEnabled = false; m.addItem(e)
@@ -119,6 +121,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let v = NSMenuItem(title: VoiceEnrollment.running ? "내 목소리 등록 중…" : (VoiceEnrollment.registered ? "내 목소리 다시 등록 (20초)" : "내 목소리 등록 (20초)"),
                                action: (state == .idle && !VoiceEnrollment.running) ? #selector(enrollVoice) : nil, keyEquivalent: "")
             v.target = self; m.addItem(v)
+        }
+        if notificationsDenied {
+            let n = NSMenuItem(title: "알림 꺼져 있음: 켜기…", action: #selector(openNotificationSettings), keyEquivalent: ""); n.target = self; m.addItem(n)
         }
         let st = NSMenuItem(title: "설정…", action: #selector(openSettings), keyEquivalent: ","); st.target = self; m.addItem(st)
         let tr = NSMenuItem(title: "전사본 폴더 열기", action: #selector(openTranscripts), keyEquivalent: ""); tr.target = self; m.addItem(tr)
@@ -171,6 +176,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     @objc private func openRecent(_ s: NSMenuItem) { if let p = s.representedObject as? String { NSWorkspace.shared.open(URL(fileURLWithPath: p)) } }
     @objc private func enrollVoice() { VoiceEnrollment.start() }
+    /// 알림 권한이 꺼져 있으면 알림은 스크립트 편집기 이름으로 가고, 눌러도 노트가 열리지 않는다.
+    private var notificationsDenied = false
+    private func refreshNotificationStatus() {
+        Notifier.status { st in DispatchQueue.main.async { self.notificationsDenied = (st == .denied) } }
+    }
+    @objc private func openNotificationSettings() { Notifier.openSettings() }
+
     @objc private func openSettings() { SettingsView.show() }
     @objc private func openTranscripts() { NSWorkspace.shared.open(Paths.transcripts) }
     @objc private func quit() {
