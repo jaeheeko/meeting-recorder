@@ -30,12 +30,32 @@ enum Pipeline {
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd HH:mm"; return f.string(from: d)
     }
 
-    /// 두 트랙을 전사해 합친 원문을 만든다.
-    static func transcribeTracks(me: URL?, other: URL?, meOffset: Double, otherOffset: Double) async throws -> String {
-        var segs: [Segment] = []
-        if let me { segs += try await Transcriber.transcribe(url: me, speaker: "나", offset: meOffset) }
-        if let other { segs += try await Transcriber.transcribe(url: other, speaker: "상대", offset: otherOffset) }
-        return Merge.render(segs)
+    /// 두 트랙을 전사해 합친 원문을 만든다. diarize 가 켜져 있으면 목소리로 화자도 나눈다:
+    /// 대면 회의(상대 트랙 무음)는 마이크 트랙을, 화상 회의는 상대 트랙을 나눈다. 실패하면 분리 없이 간다.
+    static func transcribeTracks(me: URL?, other: URL?, meOffset: Double, otherOffset: Double,
+                                 diarize: Bool = false, faceToFace: Bool = false) async throws -> (raw: String, diarNote: String?) {
+        var meSegs: [Segment] = [], otherSegs: [Segment] = []
+        if let me { meSegs = try await Transcriber.transcribe(url: me, speaker: "나", offset: meOffset) }
+        if let other { otherSegs = try await Transcriber.transcribe(url: other, speaker: "상대", offset: otherOffset) }
+        var note: String? = nil
+        if diarize {
+            do {
+                let profile = Diarization.loadProfile()
+                if faceToFace, let me {
+                    let out = try await Diarization.run(url: me)
+                    let r = Diarization.apply(meSegs, out: out, offset: meOffset, fallbackLabel: "나", profile: profile)
+                    meSegs = r.segs; note = "대면 회의, 마이크 트랙 " + r.note
+                } else if !faceToFace, let other {
+                    let out = try await Diarization.run(url: other)
+                    let r = Diarization.apply(otherSegs, out: out, offset: otherOffset, fallbackLabel: "상대", profile: nil)
+                    otherSegs = r.segs; note = "화상 회의, 상대 트랙 " + r.note
+                }
+            } catch {
+                note = "실패(\(error.localizedDescription)), 화자 분리 없이 처리"
+                log("화자 분리 실패: \(error)")
+            }
+        }
+        return (Merge.render(meSegs + otherSegs), note)
     }
 
     /// 녹음 세션 폴더를 처리한다: 전사 → transcripts 저장 → (성공 시) 오디오 삭제 → 정리 → 노트 저장.
@@ -58,11 +78,14 @@ enum Pipeline {
         let info = try dec.decode(SessionInfo.self, from: data)
         guard info.meFile != nil || info.otherFile != nil else { markSession(sessionDir, state: "failed"); throw Organizer.E(description: "녹음된 오디오가 없다") }
         let raw: String
+        var diarNote: String? = nil
+        let faceToFaceSession = info.otherSilent ?? (info.otherFile == nil || (info.otherPeak ?? 1) < silentThreshold)
         do {
-            raw = try await transcribeTracks(
+            (raw, diarNote) = try await transcribeTracks(
                 me: info.meFile.map { sessionDir.appendingPathComponent($0) },
                 other: info.otherFile.map { sessionDir.appendingPathComponent($0) },
-                meOffset: info.meOffset, otherOffset: info.otherOffset)
+                meOffset: info.meOffset, otherOffset: info.otherOffset,
+                diarize: Config.load().diarizationEnabled, faceToFace: faceToFaceSession)
         } catch { markSession(sessionDir, state: "failed"); throw Organizer.E(description: "전사 실패(오디오는 \(sessionDir.path) 에 남김): \(error)") }
         // 글자·숫자가 5개 미만이면 사실상 빈 전사다(예: "."만 나온 경우). 노트로 저장하지 않고 알림만 띄운다.
         guard meaningfulCount(raw) >= 5 else { markSession(sessionDir, state: "failed"); throw Organizer.E(description: "전사 결과가 사실상 비었다(음성 없음?). 노트로는 저장하지 않음. 오디오는 \(sessionDir.path) 에 남김") }
@@ -72,7 +95,8 @@ enum Pipeline {
         let warn = info.warnings.isEmpty ? "" : "\n경고: " + info.warnings.joined(separator: "; ")
         let otherSilent = info.otherSilent ?? (info.otherFile == nil || (info.otherPeak ?? 1) < silentThreshold)
         let tracks = otherSilent ? "\n상대 트랙: 무음(대면 회의)" : "\n상대 트랙: 소리 있음"
-        let content = "# 회의 전사 원문\n녹음 시작: \(header(info.startedAt))\(tracks)\(CalendarLookup.headerLine(info.calendar ?? []))\(warn)\n\n" + raw + "\n"
+        let diar = diarNote.map { "\n화자 분리: \($0)" } ?? ""
+        let content = "# 회의 전사 원문\n녹음 시작: \(header(info.startedAt))\(tracks)\(diar)\(CalendarLookup.headerLine(info.calendar ?? []))\(warn)\n\n" + raw + "\n"
         // 덮어쓰지 않는다. 같은 이름이 있으면 " (2)".
         var tURL = Paths.transcripts.appendingPathComponent("\(base).md")
         var n = 2

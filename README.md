@@ -10,8 +10,9 @@
 2. **내 마이크**와 **시스템 오디오(상대 목소리)**를 별도 트랙으로 녹음하고, 각각 전사해 시간순으로 합칩니다. 전사에는 "나" / "상대"가 표시됩니다.
 3. 전사는 Apple SpeechAnalyzer(ko_KR, macOS 내장)가 기기에서 합니다. 별도 STT API나 키는 필요 없습니다.
 4. 전사본을 [Claude Code CLI](https://docs.claude.com/en/docs/claude-code)(`claude -p`)가 의미 기준으로 교정합니다(잘못 받아쓴 용어, 빠진 조사). 교정 전 원문은 `~/Library/Application Support/MeetingRecorder/transcripts/`에 남습니다.
-5. 같은 시간대의 캘린더 일정(제목, 참석자)을 참조해 회의 제목·화자·고유명사를 맞춥니다(선택).
-6. 요약, 주제별 정리, 결정, 할 일, 열린 질문과 교정된 전사를 한 파일(`.md`)로 설정한 폴더에 저장하고 알림으로 경로를 알려 줍니다.
+5. (선택) 화자 분리를 켜면 목소리로 "누가 말했는지"를 나눕니다. 아래 "화자 분리"를 보세요.
+6. 같은 시간대의 캘린더 일정(제목, 참석자)을 참조해 회의 제목·화자·고유명사를 맞춥니다(선택).
+7. 요약, 주제별 정리, 결정, 할 일, 열린 질문과 교정된 전사를 한 파일(`.md`)로 설정한 폴더에 저장하고 알림으로 경로를 알려 줍니다.
 
 ## 요구 사항
 
@@ -42,6 +43,17 @@ open build/MeetingRecorder.app
 
 ad-hoc 서명이라 **다시 빌드하면 macOS가 앱을 새 앱으로 보고 권한을 다시 물을 수 있습니다.** 터미널이 아니라 `open`(또는 더블클릭)으로 실행해야 권한이 앱에 붙습니다.
 
+### 화자 분리 (선택)
+
+설정의 "화자 분리"를 켜면 [FluidAudio](https://github.com/FluidInference/FluidAudio)(pyannote 계열 오프라인 파이프라인, Core ML/Apple Neural Engine)로 목소리를 구분해 전사에 `화자 A`, `화자 B`를 붙입니다.
+
+- **대면 회의**(상대 트랙이 무음): 마이크 트랙을 분리합니다. 여러 사람이 한 마이크에 섞이는 경우입니다.
+- **화상 회의**: 상대 트랙을 분리해 상대가 여럿이면 구분합니다. 내 트랙은 계속 "나"입니다.
+- **내 목소리 등록**(선택): 메뉴 또는 설정에서 20초 동안 말하면 목소리 프로필(`voice-profile.json`, 기기에만 저장)이 만들어지고, 대면 회의에서 가장 가까운 화자를 "나"로 표시합니다. 등록하지 않았거나 충분히 비슷하지 않으면 "나"로 붙이지 않습니다.
+- 이름은 AI가 캘린더 참석자와 대화(호명, 자기소개)로 **확실할 때만** 붙입니다. 확실하지 않으면 `화자 A` 그대로입니다.
+- 첫 사용 때 모델(디스크 약 21MB, 이미 받아 둔 뒤에는 기기에서만 동작)을 `~/Library/Application Support/FluidAudio/Models/`로 내려받습니다. 오프라인이면 화자 분리 없이 처리하고 전사본 머리에 사유를 적습니다.
+- 정확도는 완벽하지 않습니다. 목소리가 비슷한 사람, 짧은 발화, 겹쳐 말하기는 틀릴 수 있습니다.
+
 ### 메뉴
 
 - 아이콘 왼쪽 클릭: 녹음 시작/종료. 오른쪽 클릭: 메뉴(경과 시간, 최근 결과, 설정…, 전사본 폴더 열기, 종료).
@@ -65,6 +77,7 @@ ad-hoc 서명이라 **다시 빌드하면 macOS가 앱을 새 앱으로 보고 �
 | `termsPath` | `""` | 용어 사전(한 줄에 용어 하나). 비우면 `~/Library/Application Support/MeetingRecorder/terms.txt` |
 | `correctionEnabled` | `true` | 전사 의미 교정 사용 |
 | `calendarEnabled` | `true` | 캘린더 참조 사용 |
+| `diarizationEnabled` | `false` | 목소리로 화자 분리(위 "화자 분리") |
 | `claudePath` | `""` | 비우면 `~/.local/bin`, Homebrew, PATH에서 자동 탐색 |
 | `model` | `""` | `claude --model` 값. 비우면 기본 모델 |
 | `correctModel` | `"sonnet"` | 전사 교정에 쓸 모델. 비우면 `model` |
@@ -128,3 +141,7 @@ MeetingRecorder --selftest
 ## 라이선스
 
 MIT
+
+### 서드파티
+
+- [FluidAudio](https://github.com/FluidInference/FluidAudio) 0.18.3 (Apache-2.0): 화자 분리. 모델은 Hugging Face `FluidInference/speaker-diarization-coreml`(pyannote segmentation, WeSpeaker 임베딩 기반)에서 내려받으며 각 모델의 라이선스는 해당 저장소를 따릅니다.

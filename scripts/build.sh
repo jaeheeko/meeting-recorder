@@ -2,8 +2,8 @@
 # 릴리스 빌드 후 build/MeetingRecorder.app 을 조립하고 ad-hoc 서명한다. 설치는 하지 않는다.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-swift build -c release --product MeetingRecorder
-BIN=$(swift build -c release --product MeetingRecorder --show-bin-path)
+swift build --disable-keychain -c release --product MeetingRecorder
+BIN=$(swift build --disable-keychain -c release --product MeetingRecorder --show-bin-path)
 APP=build/MeetingRecorder.app
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"

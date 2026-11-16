@@ -14,15 +14,29 @@ func runCLI() async -> Int32 {
         if let me = opt("--transcribe") {
             let other = opt("--other")
             let otherOff = Double(opt("--other-offset") ?? "0") ?? 0
-            let raw = try await Pipeline.transcribeTracks(
+            let (raw, diarNote) = try await Pipeline.transcribeTracks(
                 me: URL(fileURLWithPath: me), other: other.map { URL(fileURLWithPath: $0) },
-                meOffset: 0, otherOffset: otherOff)
+                meOffset: 0, otherOffset: otherOff,
+                diarize: args.contains("--diarize") || Config.load().diarizationEnabled, faceToFace: other == nil)
+            if let n = diarNote { log("화자 분리: \(n)") }
             if let out = opt("--out") {
-                try ("# 회의 전사 원문\n녹음 시작: \(Pipeline.header(Date()))\n\n" + raw + "\n")
+                try ("# 회의 전사 원문\n녹음 시작: \(Pipeline.header(Date()))\(other == nil ? "\n상대 트랙: 무음(대면 회의)" : "")\(diarNote.map { "\n화자 분리: \($0)" } ?? "")\n\n" + raw + "\n")
                     .write(toFile: out, atomically: true, encoding: .utf8)
                 log("saved: \(out)")
             } else { print(raw) }
             return 0
+        }
+        if let w = opt("--enroll") { // 시험용: 파일로 내 목소리 프로필 등록
+            let p = try await Diarization.enroll(from: URL(fileURLWithPath: w))
+            print("등록: 말소리 \(Int(p.seconds))초, 차원 \(p.embedding.count) → \(Diarization.profileURL.path)"); return 0
+        }
+        if let w = opt("--diarize-test") { // 시험용: 화자 분리 결과(JSON)와 내 프로필과의 거리를 출력
+            let out = try await Diarization.run(url: URL(fileURLWithPath: w))
+            let prof = Diarization.loadProfile()
+            var dist: [String: Float] = [:]
+            if let prof { for (k, c) in out.centroids { dist[k] = Diarization.cosineDistance(prof.embedding, c) } }
+            let obj: [String: Any] = ["seconds": out.seconds, "turns": out.turns.map { ["s": $0.start, "e": $0.end, "spk": $0.speaker] }, "meDistance": dist]
+            print(String(data: try JSONSerialization.data(withJSONObject: obj), encoding: .utf8)!); return 0
         }
         if let i = args.firstIndex(of: "--enqueue-test") { // 대기열 시험: wav 마다 세션 폴더를 만들어 연달아 넣는다(노트는 저장하지 않음)
             guard ProcessInfo.processInfo.environment["MR_APP_SUPPORT"] != nil else { log("MR_APP_SUPPORT 를 임시 폴더로 지정해야 한다"); return 2 }
@@ -78,6 +92,10 @@ func runCLI() async -> Int32 {
                 let r = ProcessingQueue.scanLeftovers()
                 print("재시작 스캔: 이어서 처리 \(r.resume.map { $0.lastPathComponent }), 보존/기타 \(r.preserved)개")
             }
+            print("화자 매핑 파싱:", Organizer.parseSpeakers("화자 A=Alex\n화자 B=나\n화자 C=\n화자 D=화자 E\nfoo=bar"))
+            let dout = Diarization.Output(turns: [.init(start: 0, end: 5, speaker: "S2"), .init(start: 6, end: 9, speaker: "S1")], centroids: ["S1": [1, 0], "S2": [0.99, 0.1]], seconds: 0)
+            let dl = Diarization.labels(out: dout, profile: .init(embedding: [1, 0], createdAt: Date(), seconds: 20))
+            print("화자 라벨(S1이 내 프로필과 가까움):", dl.map.sorted { $0.key < $1.key }, "me=\(dl.meId ?? "-")")
             // 저장 경로 정책: 패턴, 존재 확인, 확신 여부, 이탈 거부
             let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("mr-selftest-\(getpid())")
             try? FileManager.default.createDirectory(at: tmp.appendingPathComponent("Projects/alpha"), withIntermediateDirectories: true)
@@ -138,7 +156,7 @@ func runCLI() async -> Int32 {
     }
 }
 
-let cliFlags = ["--transcribe", "--organize", "--process-session", "--enqueue-test", "--selftest", "--help", "-h"]
+let cliFlags = ["--transcribe", "--organize", "--process-session", "--enroll", "--diarize-test", "--enqueue-test", "--selftest", "--help", "-h"]
 if args.contains(where: { cliFlags.contains($0) }) {
     Task { exit(await runCLI()) }
     RunLoop.main.run()

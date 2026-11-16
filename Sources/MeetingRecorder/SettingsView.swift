@@ -19,6 +19,12 @@ struct SettingsView: View {
             Section("처리") {
                 Toggle("전사 의미 교정", isOn: $cfg.correctionEnabled)
                 Toggle("캘린더 참조", isOn: $cfg.calendarEnabled)
+                Toggle("화자 분리", isOn: $cfg.diarizationEnabled)
+                HStack {
+                    Button("내 목소리 등록") { VoiceEnrollment.start() }
+                    Text(VoiceEnrollment.registered ? "등록됨" : "미등록")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
             }
             Section("모델") {
                 Picker("교정 모델", selection: $cfg.correctModel) { modelOptions }
@@ -45,6 +51,15 @@ struct SettingsView: View {
         .onDisappear { saveName() }
         .onChange(of: cfg.correctionEnabled) { _, v in Config.update { $0.correctionEnabled = v } }
         .onChange(of: cfg.calendarEnabled) { _, v in Config.update { $0.calendarEnabled = v } }
+        .onChange(of: cfg.diarizationEnabled) { _, v in
+            Config.update { $0.diarizationEnabled = v }
+            if v { // 첫 사용 때 기다리지 않도록 모델을 미리 받아 둔다
+                Task.detached(priority: .utility) {
+                    do { try await Diarization.prefetch(); Pipeline.notify("화자 분리", "모델 준비를 마쳤습니다.") }
+                    catch { Pipeline.notify("화자 분리", "모델을 받지 못했습니다(오프라인?). 회의를 처리할 때 다시 시도합니다.") }
+                }
+            }
+        }
         .onChange(of: cfg.correctModel) { _, v in Config.update { $0.correctModel = v } }
         .onChange(of: cfg.organizeModel) { _, v in Config.update { $0.organizeModel = v } }
     }

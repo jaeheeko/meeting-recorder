@@ -19,10 +19,11 @@ enum Organizer {
         let lines = text.components(separatedBy: "\n")
         let split = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces).isEmpty }) ?? lines.count
         let head = lines[..<min(split, lines.count)]
-        var started = "", tracks = ""; var cal: [CalEvent] = []
+        var started = "", tracks = "", diarLine = ""; var cal: [CalEvent] = []
         for l in head {
             if l.hasPrefix("녹음 시작:") { started = l.replacingOccurrences(of: "녹음 시작:", with: "").trimmingCharacters(in: .whitespaces) }
             if l.hasPrefix("캘린더:") { cal = CalendarLookup.parseHeader(String(l.dropFirst("캘린더:".count)).trimmingCharacters(in: .whitespaces)) }
+            if l.hasPrefix("화자 분리:") { diarLine = l }
             if l.hasPrefix("상대 트랙:") { tracks = l.replacingOccurrences(of: "상대 트랙:", with: "").trimmingCharacters(in: .whitespaces) }
         }
         let raw = lines[min(split, lines.count)...].joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -30,6 +31,7 @@ enum Organizer {
             let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd HH:mm"
             started = f.string(from: Date())
         }
+        if !diarLine.isEmpty { tracks += "\n" + diarLine }
         return (started, tracks, cal, raw)
     }
 
@@ -127,11 +129,25 @@ enum Organizer {
         return out
     }
 
-    static func parse(_ out: String) throws -> (path: String, conf: String, reason: String, body: String) {
+    /// `화자 A=Alex` 줄들. 나·빈 이름·"화자 X" 로 시작하지 않는 항목은 무시한다.
+    static func parseSpeakers(_ s: String) -> [String: String] {
+        var m: [String: String] = [:]
+        for line in s.components(separatedBy: "\n") {
+            let p = line.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+            guard p.count == 2, p[0].hasPrefix("화자 "), !p[1].isEmpty, p[1] != "나", !p[1].hasPrefix("화자"), !p[1].contains(":"), p[1].count <= 20 else { continue }
+            m[p[0]] = p[1]
+        }
+        return m
+    }
+
+    static func parse(_ out: String) throws -> (path: String, conf: String, reason: String, body: String, speakers: [String: String]) {
         func section(_ name: String, next: String?) -> String? {
             guard let r = out.range(of: "===\(name)===") else { return nil }
             var rest = String(out[r.upperBound...])
-            if let next, let n = rest.range(of: "===\(next)===") { rest = String(rest[..<n.lowerBound]) }
+            // next 가 "A|B" 이면 먼저 나오는 쪽에서 끊는다
+            let nexts = (next ?? "").split(separator: "|").map(String.init)
+            let cut = nexts.compactMap { rest.range(of: "===\($0)===")?.lowerBound }.min()
+            if let cut { rest = String(rest[..<cut]) }
             return rest.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         guard let path = section("PATH", next: "CONFIDENCE")?.components(separatedBy: "\n").first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }), let body = section("BODY", next: nil), !body.isEmpty else {
@@ -143,7 +159,7 @@ enum Organizer {
             b = b.trimmingCharacters(in: .whitespacesAndNewlines)
             if b.hasSuffix("```") { b = String(b.dropLast(3)).trimmingCharacters(in: .whitespacesAndNewlines) }
         }
-        return (path, section("CONFIDENCE", next: "REASON") ?? "", section("REASON", next: "BODY") ?? "", b)
+        return (path, section("CONFIDENCE", next: "REASON") ?? "", section("REASON", next: "SPEAKERS|BODY") ?? "", b, parseSpeakers(section("SPEAKERS", next: "BODY") ?? ""))
     }
 
     static func sanitize(path raw: String, confidence: String, started: String, cfg: Config) -> (path: String, note: String?) {
@@ -169,6 +185,7 @@ enum Organizer {
         let r = try parse(out)
         let (path, note) = sanitize(path: r.path, confidence: r.conf, started: started, cfg: cfg)
         let body = insertOriginalLink(r.body, path: transcript.path)
+        for (k, v) in r.speakers { corrected = corrected.replacingOccurrences(of: "] \(k):", with: "] \(v):") }
         let doc = body + "\n\n## 전사 (AI 교정본)\n\n" + corrected + "\n"
         return OrganizePlan(relPath: path, confidence: r.conf, reason: r.reason + (note.map { " [앱: \($0)]" } ?? ""),
                             body: body, fullDocument: doc, report: report)

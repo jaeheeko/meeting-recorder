@@ -115,6 +115,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             i.representedObject = p; i.target = self; m.addItem(i)
         }
         m.addItem(.separator())
+        if Config.load().diarizationEnabled {
+            let v = NSMenuItem(title: VoiceEnrollment.running ? "내 목소리 등록 중…" : (VoiceEnrollment.registered ? "내 목소리 다시 등록 (20초)" : "내 목소리 등록 (20초)"),
+                               action: (state == .idle && !VoiceEnrollment.running) ? #selector(enrollVoice) : nil, keyEquivalent: "")
+            v.target = self; m.addItem(v)
+        }
         let st = NSMenuItem(title: "설정…", action: #selector(openSettings), keyEquivalent: ","); st.target = self; m.addItem(st)
         let tr = NSMenuItem(title: "전사본 폴더 열기", action: #selector(openTranscripts), keyEquivalent: ""); tr.target = self; m.addItem(tr)
         let q = NSMenuItem(title: "종료", action: #selector(quit), keyEquivalent: "q"); q.target = self; m.addItem(q)
@@ -165,6 +170,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         try? JSONEncoder().encode(recent).write(to: Paths.recentFile)
     }
     @objc private func openRecent(_ s: NSMenuItem) { if let p = s.representedObject as? String { NSWorkspace.shared.open(URL(fileURLWithPath: p)) } }
+    @objc private func enrollVoice() { VoiceEnrollment.start() }
     @objc private func openSettings() { SettingsView.show() }
     @objc private func openTranscripts() { NSWorkspace.shared.open(Paths.transcripts) }
     @objc private func quit() {

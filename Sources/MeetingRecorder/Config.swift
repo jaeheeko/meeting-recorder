@@ -22,6 +22,8 @@ struct Config: Codable {
     var termsPath = ""
     var correctionEnabled = true
     var calendarEnabled = true
+    /// 목소리로 화자를 나눈다(FluidAudio). 첫 사용 때 모델(약 100MB)을 내려받는다.
+    var diarizationEnabled = false
     /// 비우면 PATH 와 ~/.local/bin 등에서 자동으로 찾는다.
     var claudePath = ""
     /// 비우면 claude 기본 모델.
@@ -52,6 +54,7 @@ struct Config: Codable {
         termsPath = try c.decodeIfPresent(String.self, forKey: .termsPath) ?? x.termsPath
         correctionEnabled = try c.decodeIfPresent(Bool.self, forKey: .correctionEnabled) ?? x.correctionEnabled
         calendarEnabled = try c.decodeIfPresent(Bool.self, forKey: .calendarEnabled) ?? x.calendarEnabled
+        diarizationEnabled = try c.decodeIfPresent(Bool.self, forKey: .diarizationEnabled) ?? x.diarizationEnabled
         claudePath = try c.decodeIfPresent(String.self, forKey: .claudePath) ?? x.claudePath
         model = try c.decodeIfPresent(String.self, forKey: .model) ?? x.model
         fallbackModels = try c.decodeIfPresent([String].self, forKey: .fallbackModels) ?? x.fallbackModels
@@ -62,7 +65,7 @@ struct Config: Codable {
     }
     enum K: String, CodingKey {
         case userName, outputRoot, agentWorkingDir, allowedPathPatterns, fallbackPath, requireExistingParent, fileNameTemplate
-        case organizePromptPath, correctPromptPath, termsPath, correctionEnabled, calendarEnabled, claudePath, model, correctModel, organizeModel, fallbackModels, keepAudio, extraAllowedTools
+        case organizePromptPath, correctPromptPath, termsPath, correctionEnabled, calendarEnabled, diarizationEnabled, claudePath, model, correctModel, organizeModel, fallbackModels, keepAudio, extraAllowedTools
     }
 
     // MARK: 로드·저장

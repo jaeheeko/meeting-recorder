@@ -3,11 +3,14 @@ import Speech
 import AVFoundation
 import CoreMedia
 
+struct Word { var text: String; var start: Double; var end: Double }
+
 struct Segment {
     var start: Double
     var end: Double
     var speaker: String
     var text: String
+    var words: [Word] = []
 }
 
 enum Transcriber {
@@ -39,7 +42,13 @@ enum Transcriber {
                 let text = String(r.text.characters).trimmingCharacters(in: .whitespacesAndNewlines)
                 if text.isEmpty { continue }
                 let s = r.range.start.seconds, e = r.range.end.seconds
-                out.append(Segment(start: s + offset, end: (e.isFinite ? e : s) + offset, speaker: speaker, text: text))
+                var words: [Word] = []
+                for run in r.text.runs {
+                    guard let tr = run.audioTimeRange else { continue }
+                    let w = String(r.text[run.range].characters)
+                    words.append(Word(text: w, start: tr.start.seconds + offset, end: (tr.start + tr.duration).seconds + offset))
+                }
+                out.append(Segment(start: s + offset, end: (e.isFinite ? e : s) + offset, speaker: speaker, text: text, words: words))
             }
             return out
         }
