@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ n: Notification) {
         Paths.ensureDirs()
         Notifier.setup()
+        if CommandLine.arguments.contains("--preview-settings") { SettingsView.show(background: true) }   // 확인용
         if CommandLine.arguments.contains("--preview-editor") {   // 확인용: 포커스 없이 정리 프롬프트 편집 창을 뒤에 띄운다
             let c = Config.load()
             let u = c.organizePromptPath.isEmpty ? Paths.appSupport.appendingPathComponent("prompts/organize.md") : Config.expand(c.organizePromptPath)

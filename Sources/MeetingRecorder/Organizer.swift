@@ -60,7 +60,30 @@ enum Organizer {
         for p in c where p.isRunning { p.terminate() }
     }
 
-    static func runClaude(prompt: String, cwd: URL? = nil, tools: [String]? = nil, timeout: TimeInterval = 900, cfg: Config = Config.load()) throws -> String {
+    /// 설정한 모델로 실행하고, 사용 한도·과부하로 실패하면 fallbackModels 를 차례로 시도한다.
+    static func runClaude(prompt: String, cwd: URL? = nil, tools: [String]? = nil, timeout: TimeInterval = 900, cfg: Config = Config.load(), model preferred: String = "") throws -> String {
+        let first = !preferred.isEmpty ? preferred : (cfg.model.isEmpty ? (ProcessInfo.processInfo.environment["MR_MODEL"] ?? "") : cfg.model)
+        var models = [first]
+        for m in cfg.fallbackModels where !m.isEmpty && !models.contains(m) { models.append(m) }
+        var lastError: Error = E(description: "claude 실행 실패")
+        for (i, m) in models.enumerated() {
+            do {
+                return try runClaudeOnce(prompt: prompt, cwd: cwd, tools: tools, timeout: timeout, cfg: cfg, model: m)
+            } catch {
+                lastError = error
+                guard isLimitError("\(error)"), i + 1 < models.count else { throw error }
+                log("모델 \(m.isEmpty ? "(기본)" : m) 한도·과부하로 실패, \(models[i + 1])로 다시 시도: \(String("\(error)".prefix(200)))")
+            }
+        }
+        throw lastError
+    }
+
+    static func isLimitError(_ s: String) -> Bool {
+        let l = s.lowercased()
+        return ["hit your", "usage limit", "rate limit", "limit reached", "resets", "overloaded", "529", "429"].contains { l.contains($0) }
+    }
+
+    private static func runClaudeOnce(prompt: String, cwd: URL?, tools: [String]?, timeout: TimeInterval, cfg: Config, model: String) throws -> String {
         let p = Process()
         p.qualityOfService = .utility   // 녹음이 끊기지 않게 처리 쪽은 낮은 우선순위로
         p.executableURL = URL(fileURLWithPath: cfg.claudeURL)
@@ -71,7 +94,6 @@ enum Organizer {
             args += ["--allowedTools", "Read", "Glob", "Grep"] + cfg.extraAllowedTools + [
                      "--disallowedTools", "Write", "Edit", "NotebookEdit", "WebFetch", "WebSearch"]
         }
-        let model = cfg.model.isEmpty ? (ProcessInfo.processInfo.environment["MR_MODEL"] ?? "") : cfg.model
         if !model.isEmpty { args += ["--model", model] }
         p.arguments = args
         p.currentDirectoryURL = cwd ?? cfg.workingDirURL
@@ -143,7 +165,7 @@ enum Organizer {
             corrected = r.text; report = r.report
         }
         progress?("정리")
-        let out = try runClaude(prompt: try prompt(started: started, tracks: tracks, calendar: cal, raw: corrected, cfg: cfg), cfg: cfg)
+        let out = try runClaude(prompt: try prompt(started: started, tracks: tracks, calendar: cal, raw: corrected, cfg: cfg), cfg: cfg, model: cfg.organizeModel)
         let r = try parse(out)
         let (path, note) = sanitize(path: r.path, confidence: r.conf, started: started, cfg: cfg)
         let body = insertOriginalLink(r.body, path: transcript.path)

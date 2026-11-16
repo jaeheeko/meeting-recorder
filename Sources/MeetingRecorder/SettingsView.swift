@@ -20,6 +20,12 @@ struct SettingsView: View {
                 Toggle("전사 의미 교정", isOn: $cfg.correctionEnabled)
                 Toggle("캘린더 참조", isOn: $cfg.calendarEnabled)
             }
+            Section("모델") {
+                Picker("교정 모델", selection: $cfg.correctModel) { modelOptions }
+                Picker("정리 모델", selection: $cfg.organizeModel) { modelOptions }
+                Text("고른 모델이 사용 한도에 걸리면 Opus, Sonnet 순으로 자동 전환한다.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
             Section("편집") {
                 HStack {
                     Button("정리 프롬프트 편집") { SettingsView.editPrompt(.organize) }
@@ -33,12 +39,23 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .padding(8)
-        .frame(width: 560, height: 560)
+        .frame(width: 560, height: 680)
         .onChange(of: cfg.outputRoot) { _, v in Config.update { $0.outputRoot = v } }
         .onChange(of: cfg.agentWorkingDir) { _, v in Config.update { $0.agentWorkingDir = v } }
         .onDisappear { saveName() }
         .onChange(of: cfg.correctionEnabled) { _, v in Config.update { $0.correctionEnabled = v } }
         .onChange(of: cfg.calendarEnabled) { _, v in Config.update { $0.calendarEnabled = v } }
+        .onChange(of: cfg.correctModel) { _, v in Config.update { $0.correctModel = v } }
+        .onChange(of: cfg.organizeModel) { _, v in Config.update { $0.organizeModel = v } }
+    }
+
+    /// claude --model 별칭. 빈 값은 claude 기본 모델.
+    @ViewBuilder private var modelOptions: some View {
+        Text("Opus").tag("opus")
+        Text("Sonnet").tag("sonnet")
+        Text("Haiku").tag("haiku")
+        Text("Fable").tag("fable")
+        Text("Claude 기본값").tag("")
     }
 
     private func saveName() {
@@ -105,12 +122,12 @@ struct SettingsView: View {
     }
 
     static var window: NSWindow?
-    static func show() {
+    static func show(background: Bool = false) {
         if window == nil {
             let host = NSHostingController(rootView: SettingsView())
             host.sizingOptions = [.preferredContentSize]
             let w = NSWindow(contentViewController: host)
-            w.setContentSize(NSSize(width: 560, height: 560))
+            w.setContentSize(NSSize(width: 560, height: 680))
             w.title = "MeetingRecorder 설정"
             w.styleMask = [.titled, .closable]
             w.isReleasedWhenClosed = false
@@ -118,8 +135,9 @@ struct SettingsView: View {
         } else if let h = window?.contentViewController as? NSHostingController<SettingsView> {
             h.rootView = SettingsView() // 열 때마다 최신 config 를 읽는다
         }
-        NSApp.activate(ignoringOtherApps: true)
         window?.center()
+        if background { window?.orderBack(nil); return }   // 확인용: 포커스를 가져가지 않고 뒤에 띄운다
+        NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
         // 창이 열리자마자 입력 칸에 포커스가 가지 않게 한다(다른 앱에서 치던 글자가 들어가는 사고 방지).
         DispatchQueue.main.async { window?.makeFirstResponder(nil) }

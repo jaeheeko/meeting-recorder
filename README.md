@@ -67,6 +67,9 @@ ad-hoc 서명이라 **다시 빌드하면 macOS가 앱을 새 앱으로 보고 �
 | `calendarEnabled` | `true` | 캘린더 참조 사용 |
 | `claudePath` | `""` | 비우면 `~/.local/bin`, Homebrew, PATH에서 자동 탐색 |
 | `model` | `""` | `claude --model` 값. 비우면 기본 모델 |
+| `correctModel` | `"sonnet"` | 전사 교정에 쓸 모델. 비우면 `model` |
+| `organizeModel` | `"opus"` | 요약·정리에 쓸 모델. 비우면 `model` |
+| `fallbackModels` | `["opus", "sonnet"]` | 모델이 사용 한도·과부하로 실패하면 차례로 시도할 모델 |
 | `keepAudio` | `false` | `true`면 오디오를 지우지 않음. `false`여도 실패 징후가 있으면 남김 |
 | `extraAllowedTools` | `[]` | `claude`에 추가로 허용할 도구. 기본은 Read/Glob/Grep(읽기 전용) |
 

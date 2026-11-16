@@ -26,6 +26,11 @@ struct Config: Codable {
     var claudePath = ""
     /// 비우면 claude 기본 모델.
     var model = ""
+    /// 교정(전사 덩어리별)과 정리(요약·주제·저장 경로)에 쓸 모델. 비우면 model, 그것도 비우면 claude 기본 모델.
+    var correctModel = "sonnet"
+    var organizeModel = "opus"
+    /// 기본 모델이 사용 한도에 걸리면 차례로 시도할 모델.
+    var fallbackModels: [String] = ["opus", "sonnet"]
     /// true 면 오디오를 지우지 않는다. false 여도 실패 징후가 있으면 남긴다.
     var keepAudio = false
     /// claude 에 추가로 허용할 도구(기본 Read/Glob/Grep 외). 예: ["Bash(python3 -I scripts/search.py:*)"]
@@ -49,12 +54,15 @@ struct Config: Codable {
         calendarEnabled = try c.decodeIfPresent(Bool.self, forKey: .calendarEnabled) ?? x.calendarEnabled
         claudePath = try c.decodeIfPresent(String.self, forKey: .claudePath) ?? x.claudePath
         model = try c.decodeIfPresent(String.self, forKey: .model) ?? x.model
+        fallbackModels = try c.decodeIfPresent([String].self, forKey: .fallbackModels) ?? x.fallbackModels
+        correctModel = try c.decodeIfPresent(String.self, forKey: .correctModel) ?? x.correctModel
+        organizeModel = try c.decodeIfPresent(String.self, forKey: .organizeModel) ?? x.organizeModel
         keepAudio = try c.decodeIfPresent(Bool.self, forKey: .keepAudio) ?? x.keepAudio
         extraAllowedTools = try c.decodeIfPresent([String].self, forKey: .extraAllowedTools) ?? x.extraAllowedTools
     }
     enum K: String, CodingKey {
         case userName, outputRoot, agentWorkingDir, allowedPathPatterns, fallbackPath, requireExistingParent, fileNameTemplate
-        case organizePromptPath, correctPromptPath, termsPath, correctionEnabled, calendarEnabled, claudePath, model, keepAudio, extraAllowedTools
+        case organizePromptPath, correctPromptPath, termsPath, correctionEnabled, calendarEnabled, claudePath, model, correctModel, organizeModel, fallbackModels, keepAudio, extraAllowedTools
     }
 
     // MARK: 로드·저장

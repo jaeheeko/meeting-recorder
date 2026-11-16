@@ -83,7 +83,7 @@ enum Corrector {
                 var good: [String]? = nil
                 for attempt in 1...2 { // 실패하면 한 번 더 시도
                     do {
-                        let out = try Organizer.runClaude(prompt: prompt, cwd: Paths.appSupport, tools: [], timeout: 600, cfg: cfg)
+                        let out = try Organizer.runClaude(prompt: prompt, cwd: Paths.appSupport, tools: [], timeout: 600, cfg: cfg, model: cfg.correctModel)
                         let lines = cleanOutput(out)
                         if let why = validate(input: c, output: lines) { reason = "시도\(attempt): \(why)" } else { good = lines; reason = nil; break }
                     } catch { reason = "시도\(attempt): \(error)" }
